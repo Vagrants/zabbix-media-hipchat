@@ -6,12 +6,15 @@ Send alert to HipChat room mentioning everyone.
 
 __version__ = '0.1.0'
 
-import json
 import optparse
 import sys
 import textwrap
 import urllib2
 
+try:
+    import json
+except ImportError:
+    import simplejson as json
 
 def main():
     arguments = get_arguments()
@@ -30,22 +33,22 @@ def main():
 
     handler = urllib2.HTTPSHandler()
     opener_director = urllib2.build_opener(handler)
-    request = urllib2.Request(API_ENDPOINT_ROOM.format(room))
+    request = urllib2.Request(API_ENDPOINT_ROOM % room)
     request.add_data(json_body_str)
-    request.add_header('Authorization', 'Bearer {0}'.format(auth_token))
+    request.add_header('Authorization', 'Bearer %s' % auth_token)
     request.add_header('Content-Type', 'application/json')
 
     try:
         opener_director.open(request)
     except urllib2.HTTPError, code:
-        print('{0}'.format(code))
+        print(code)
         sys.exit(1)
     except urllib2.URLError, reason:
-        print('{0}'.format(reason))
+        print(reason)
         sys.exit(1)
 
 
-API_ENDPOINT_ROOM = 'https://api.hipchat.com/v2/room/{0}/notification'
+API_ENDPOINT_ROOM = 'https://api.hipchat.com/v2/room/%s/notification'
 
 
 class PlainTextEpilogFormatter(optparse.IndentedHelpFormatter):
@@ -59,7 +62,7 @@ class PlainTextEpilogFormatter(optparse.IndentedHelpFormatter):
 def get_arguments():
     usage = '%prog [options] "room" "params" "message"'
 
-    version = '%prog {0}'.format(__version__)
+    version = '%%prog %s' % __version__
 
     description = textwrap.dedent('''\
         Send alert to HipChat room mentioning everyone.
@@ -172,8 +175,8 @@ def return_color(status, severity):
 def return_message_body(message):
     return textwrap.dedent('''\
         @all
-        {0}
-    ''').format(message)
+        %s
+    ''' % message)
 
 
 if __name__ == '__main__':
