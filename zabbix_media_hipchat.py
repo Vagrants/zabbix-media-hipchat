@@ -14,12 +14,12 @@ import urllib2
 
 
 def main():
-    (options, arguments) = return_options_and_arguments()
-    (auth_token, room, subject, message) = arguments
+    arguments = return_options_and_arguments()
+    (room, params, message) = arguments
 
     json_body_dict = {}
-    json_body_dict['color'] = return_color(options)
-    json_body_dict['message'] = return_message_body(subject, message)
+    json_body_dict['color'] = return_color(params[1], params[2])
+    json_body_dict['message'] = return_message_body(message)
     json_body_dict['notify'] = True
     json_body_dict['message_format'] = 'text'
     json_body_str = json.dumps(json_body_dict)
@@ -28,7 +28,7 @@ def main():
     opener_director = urllib2.build_opener(handler)
     request = urllib2.Request(API_ENDPOINT_ROOM.format(room))
     request.add_data(json_body_str)
-    request.add_header('Authorization', 'Bearer {0}'.format(auth_token))
+    request.add_header('Authorization', 'Bearer {0}'.format(params[0]))
     request.add_header('Content-Type', 'application/json')
 
     try:
@@ -63,25 +63,25 @@ def return_options_and_arguments():
 
     optparse_epilog = textwrap.dedent('''\
         positional arguments:
-            auth_token          Bearer token to authenticate API access
-                                against HipChat API version 2.
-            room                ID of the room which message will be sent to.
-            subject             First line of the body of the message.
-            message             Rest of the body of the message.
-    ''')
-
-    optparse_help_severity = textwrap.dedent('''\
-        Severity of the alert. Either one of default verbal severities defined
-        by zabbix ('Average', 'High', ...) or numerical severity defined by
-        zabbix (0 <= n <= 5). Background color of the message sent to HipChat
-        will be set according to this option.  If not specified, 'High' is
-        used as a default.
-    ''')
-
-    optparse_help_status = textwrap.dedent('''\
-        Status of the alert. 'OK' will set the background color to 'green'
-        irrespective of the severity of the alert. If not specified, or
-        anything else than 'OK' was specified, 'PROBLEM' is used as a default.
+            room            ID of the room which message will be sent to.
+            params          Comma separated values of following(in order):
+                auth_token      Bearer token to authenticate API access against
+                                HipChat API version 2.
+                status          Severity of the alert. Either one of default
+                                verbal severities defined by zabbix ('Average',
+                                'High', ...) or numerical severity defined by
+                                zabbix (0 <= n <= 5). Background color of the
+                                message sent to HipChat will be set according
+                                to this option.  If not specified, 'High' is
+                                used as a default.
+                severity        Status of the alert. 'OK' will set the
+                                background color to 'green' irrespective of
+                                the severity of the alert. If not specified, or
+                                anything else than 'OK' was specified,
+                                'PROBLEM' is used as a default.
+                            Latter one or two values can be omitted.
+                            Example: 'token123:PROBLEM:Disaster'
+            message        Rest of the body of the message.
     ''')
 
     option_parser = optparse.OptionParser(
@@ -92,19 +92,31 @@ def return_options_and_arguments():
         epilog=optparse_epilog,
     )
 
-    option_parser.add_option('-e', '--severity', help=optparse_help_severity)
-    option_parser.add_option('-t', '--status', help=optparse_help_status)
+    (_, arguments) = option_parser.parse_args()
 
-    (options, arguments) = option_parser.parse_args()
+    if len(arguments) != 3:
+        option_parser.print_help()
+        sys.exit(2)
+    else:
+        (room, params, message) = arguments
 
-    if len(arguments) != 4:
+    params = params.split(',')
+
+    if len(params) == 1:
+        params.append(None)
+        params.append(None)
+    elif len(params) == 2:
+        params.append(None)
+    elif len(params) == 3:
+        pass
+    else:
         option_parser.print_help()
         sys.exit(2)
 
-    return (options, arguments)
+    return (room, params, message)
 
 
-def return_color(options):
+def return_color(status, severity):
     msg_color_map_verbal = {
         'Not classified': 'gray',
         'Information': 'purple',
@@ -123,16 +135,16 @@ def return_color(options):
         5: 'red',
     }
 
-    if options.status == 'OK':
+    if status == 'OK':
         color = 'green'
     else:
         try:
-            color_from_verbal = msg_color_map_verbal[options.severity]
+            color_from_verbal = msg_color_map_verbal[severity]
         except KeyError:
             color_from_verbal = None
 
         try:
-            color_from_numerical = msg_color_map_numerical[options.severity]
+            color_from_numerical = msg_color_map_numerical[severity]
         except KeyError:
             color_from_numerical = None
 
@@ -146,12 +158,11 @@ def return_color(options):
     return color
 
 
-def return_message_body(subject, message):
+def return_message_body(message):
     return textwrap.dedent('''\
-        @all {0}
-
-        {1}
-    ''').format(subject, message)
+        @all
+        {0}
+    ''').format(message)
 
 
 if __name__ == '__main__':
