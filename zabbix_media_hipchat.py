@@ -164,8 +164,7 @@ def get_color(status, nseverity):
 
 def get_message(message):
     return textwrap.dedent('''\
-        @all
-        %s
+        @all %s
     ''' % message)
 
 
