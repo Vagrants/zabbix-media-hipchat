@@ -21,9 +21,9 @@ def main():
     args = get_arguments()
 
     json_body_dict = {}
-    json_body_dict['color'] = get_color(args['status'], args['nseverity'])
-    json_body_dict['message'] = get_message(args['alert'])
-    json_body_dict['notify'] = True
+    json_body_dict['color'] = args['color']
+    json_body_dict['message'] = args['alert']
+    json_body_dict['notify'] = args['notify']
     json_body_dict['message_format'] = 'text'
     json_body_str = json.dumps(json_body_dict)
 
@@ -68,7 +68,7 @@ def get_arguments():
 
         Format of `destination` string:
             A list of key/value paris in the form `key1=value1,key2=value2`.
-            keys       values
+            key        value
             room       ID or name of the room which the alert is sent to
                        as an "@all" mentioning message. Required.
             auth_token Bearer token to authenticate API access against
@@ -76,7 +76,7 @@ def get_arguments():
 
         Format of `metadata` string:
             A list of key/value paris in the form `key1=value1,key2=value2`.
-            keys       values
+            key        value
             status     Status of the alert. 'OK' will set the background color
                        of the message to 'green' irrespective of the severity
                        of the alert. If not specified, or anything other than
@@ -86,6 +86,11 @@ def get_arguments():
                        Background color of the message sent to HipChat will be
                        set according to this value. If not specified, 'High'
                        is used as a default.
+            notify     Wether or not to trigger notifications(both in-app
+                       notification and offline / idle notifications).
+                       To not trigger notifications, value has to be one of
+                       'false', 'off', 'no', '0' (case insensitive). Any thing
+                       other than these values will trigger the notification.
         ''')
 
     option_parser = optparse.OptionParser(
@@ -96,53 +101,65 @@ def get_arguments():
         epilog=epilog,
     )
 
-    (_, parsed_arguments) = option_parser.parse_args()
+    (_, args) = option_parser.parse_args()
 
-    returned_arguments = {}
+    dictionary = {}
 
     try:
-        if len(parsed_arguments) != 3:
-            raise IndexError
+        if len(args) == 3:
+            dictionary.update(parse_destination(args[0]))
+            dictionary.update(parse_metadata(args[1]))
+            dictionary.update(parse_alert(args[2]))
         else:
-            destination = parsed_arguments[0]
-            metadata = parsed_arguments[1]
-            returned_arguments['alert'] = parsed_arguments[2]
-
-        for key_value in destination.split(','):
-            if key_value:
-                key, value = key_value.split('=', 1)
-
-                if key in ['room', 'auth_token']:
-                    returned_arguments[key] = str(value)
-                else:
-                    raise KeyError
-
-        for key_value in metadata.split(','):
-            if key_value:
-                key, value = key_value.split('=', 1)
-
-                if key == 'status':
-                    returned_arguments[key] = str(value)
-                elif key == 'nseverity':
-                    returned_arguments[key] = int(value)
-                else:
-                    raise KeyError
-
-        if not 'room' in returned_arguments:
-            raise KeyError
-
-        if not 'auth_token' in returned_arguments:
-            raise KeyError
+            raise IndexError
 
     except (IndexError, KeyError, ValueError):
         option_parser.print_help()
         sys.exit(2)
 
-    return returned_arguments
+    return dictionary
 
 
-def get_color(status, nseverity):
-    numerical_severity_color_map = {
+def parse_destination(string):
+    dictionary = {}
+    room = None
+    auth_token = None
+
+    for kv_pair in string.split(','):
+        if kv_pair:
+            key, value = kv_pair.split('=', 1)
+            key = key.strip().lower()
+
+            if key == 'room':
+                room = value
+            elif key == 'auth_token':
+                auth_token = value
+            else:
+                pass
+
+    if room:
+        if 1 <= len(str(room)) <= 100:
+            room = str(room)
+        else:
+            raise ValueError
+    else:
+        raise KeyError
+
+    if auth_token:
+        if 1 <= len(str(auth_token)):
+            auth_token = str(auth_token)
+        else:
+            raise ValueError
+    else:
+        raise KeyError
+
+    dictionary['room'] = room
+    dictionary['auth_token'] = auth_token
+    return dictionary
+
+
+def parse_metadata(string):
+    nseverity_color_map = {
         0: 'gray',
         1: 'purple',
         2: 'yellow',
@@ -151,21 +168,55 @@ def get_color(status, nseverity):
         5: 'red',
     }
 
-    if status == 'OK':
+    dictionary = {}
+    status = None
+    nseverity = None
+    notify = None
+
+    for kv_pair in string.split(','):
+        if kv_pair:
+            key, value = kv_pair.split('=', 1)
+            key = key.strip().lower()
+
+            if key == 'status':
+                status = value
+            elif key == 'nseverity':
+                nseverity = value
+            elif key == 'notify':
+                notify = value
+            else:
+                pass
+
+    if str(status).upper() == 'OK':
         color = 'green'
     else:
         try:
-            color = numerical_severity_color_map[nseverity]
-        except KeyError:
+            color = nseverity_color_map[int(nseverity)]
+        except (KeyError, ValueError):
             color = 'red'
 
-    return color
+    if str(notify).lower() in ['false', 'off', 'no', '0']:
+        notify = False
+    else:
+        notify = True
+
+    dictionary['color'] = color
+    dictionary['notify'] = notify
+    return dictionary
 
 
-def get_message(message):
-    return textwrap.dedent('''\
-        @all %s
-    ''' % message)
+def parse_alert(string):
+    dictionary = {}
+
+    alert = str(string)
+
+    if len(alert) > 9993:
+        alert = '@all %s ...' % alert[0:9990]
+    else:
+        alert = '@all %s' % alert
+
+    dictionary['alert'] = alert
+    return dictionary
 
 
 if __name__ == '__main__':
