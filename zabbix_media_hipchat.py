@@ -106,13 +106,9 @@ def get_arguments():
     dictionary = {}
 
     try:
-        if len(args) == 3:
-            dictionary.update(parse_destination(args[0]))
-            dictionary.update(parse_metadata(args[1]))
-            dictionary.update(parse_alert(args[2]))
-        else:
-            raise IndexError
-
+        dictionary.update(parse_destination(args[0]))
+        dictionary.update(parse_metadata(args[1]))
+        dictionary.update(parse_alert(args[2]))
     except (IndexError, KeyError, ValueError):
         option_parser.print_help()
         sys.exit(2)
@@ -137,24 +133,20 @@ def parse_destination(string):
             else:
                 pass
 
-    if room:
-        if 1 <= len(str(room)) <= 100:
-            room = str(room)
-        else:
-            raise ValueError
-    else:
+    if not room:
         raise KeyError
 
-    if auth_token:
-        if 1 <= len(str(auth_token)):
-            auth_token = str(auth_token)
-        else:
-            raise ValueError
-    else:
+    if not 1 <= len(str(room)) <= 100:
+        raise ValueError
+
+    if not auth_token:
         raise KeyError
 
-    dictionary['room'] = room
-    dictionary['auth_token'] = auth_token
+    if not 1 <= len(str(auth_token)):
+        raise ValueError
+
+    dictionary['room'] = str(room)
+    dictionary['auth_token'] = str(auth_token)
     return dictionary
 
 
@@ -187,13 +179,13 @@ def parse_metadata(string):
             else:
                 pass
 
-    if str(status).upper() == 'OK':
-        color = 'green'
-    else:
-        try:
+    try:
+        if str(status).upper() == 'OK':
+            color = 'green'
+        else:
             color = nseverity_color_map[int(nseverity)]
-        except (KeyError, ValueError):
-            color = 'red'
+    except (KeyError, ValueError):
+        color = 'red'
 
     if str(notify).lower() in ['false', 'off', 'no', '0']:
         notify = False
