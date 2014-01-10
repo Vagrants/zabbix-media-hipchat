@@ -18,6 +18,14 @@ except ImportError:
 
 
 def main():
+    """Main function.
+
+    Generates an appropriate JSON and throws them to HipChat API.
+
+    In case something happens(for example wrong token), prints error to stdout
+    and exit with 1.
+    """
+
     args = get_arguments()
 
     json_body_dict = {}
@@ -48,7 +56,22 @@ API_ENDPOINT_ROOM = 'https://api.hipchat.com/v2/room/%s/notification'
 
 
 class PlainTextEpilogFormatter(optparse.IndentedHelpFormatter):
+    """Format help.
+
+    Format help with indented section body for heading and do virtually nothing
+    for epilog.
+    """
+
     def format_epilog(self, epilog):
+        """Format epilog.
+
+        Args:
+            epilog (str): Body of epilog.
+
+        Returns:
+            str. Formatted body of epilog.
+        """
+
         if epilog:
             return "\n" + epilog + "\n"
         else:
@@ -56,6 +79,36 @@ class PlainTextEpilogFormatter(optparse.IndentedHelpFormatter):
 
 
 def get_arguments():
+    """Parse commandline arguments.
+
+    Parse commandline arguments and returns a dict containing runtime
+    parameters. Commandline arguments are (in order):
+
+        ``destination``
+            ``destination string``
+
+        ``metadata``
+            ``metadata string``
+
+        ``alert``
+            Body of the alert message.
+
+    Every commandline arguments are required. A nice help message will be
+    displayed when parsing of commandline arguments failed for some reason,
+    or user supplied ``--help`` option.
+
+    Returns:
+        A dict containing the following:
+
+        ================ ====================================================
+        key              value
+        room (str)       ID or name of the room which the message is sent to.
+        auth_token (str) Bearer token to authenticate API access.
+        color (str)      Background color of the message sent to HipChat.
+        notify (bool)    Wether or not to trigger notifications.
+        ================ ====================================================
+    """
+
     usage = '%prog [options] "destination" "metadata" "alert"'
     version = '%%prog %s' % __version__
     description = 'Send zabbix alert to HipChat.'
@@ -75,7 +128,7 @@ def get_arguments():
                        HipChat API version 2. Required.
 
         Format of `metadata` string:
-            A list of key/value paris in the form `key1=value1,key2=value2`.
+            A list of key/value paris in the form of `key1=value1,key2=value2`.
             key        value
             status     Status of the alert. 'OK' will set the background color
                        of the message to 'green' irrespective of the severity
@@ -117,6 +170,35 @@ def get_arguments():
 
 
 def parse_destination(string):
+    """Parse ``destination string``.
+
+    ``destination string`` is a list of key/value paris in the form of
+    ``key1=value1,key2=value2``. Accepted keys and values are:
+
+        ``room``
+            ID or name of the room which the alert is sent to as an "@all"
+            mentioning message. Required.
+        ``auth_token``
+            Bearer token to authenticate API access against HipChat API version
+            2. Required.
+
+    Args:
+        string (str): ``destination string``.
+
+    Returns:
+        A dict containing the following:
+
+        ================ ====================================================
+        key              value
+        room (str)       ID or name of the room which the message is sent to.
+        auth_token (str) Bearer token to authenticate API access.
+        ================ ====================================================
+
+    Raises:
+        * KeyError: Raised when required keys are not proveded.
+        * ValueError: Raised when values are not acceptable.
+    """
+
     dictionary = {}
     room = None
     auth_token = None
@@ -125,6 +207,7 @@ def parse_destination(string):
         if kv_pair:
             key, value = kv_pair.split('=', 1)
             key = key.strip().lower()
+            value = value.strip()
 
             if key == 'room':
                 room = value
@@ -136,14 +219,11 @@ def parse_destination(string):
     if not room:
         raise KeyError
 
-    if not 1 <= len(str(room)) <= 100:
+    if not len(str(room)) <= 100:
         raise ValueError
 
     if not auth_token:
         raise KeyError
-
-    if not 1 <= len(str(auth_token)):
-        raise ValueError
 
     dictionary['room'] = str(room)
     dictionary['auth_token'] = str(auth_token)
@@ -151,6 +231,42 @@ def parse_destination(string):
 
 
 def parse_metadata(string):
+    """Parse ``metadata string``.
+
+    ``metadata string`` is a list of key/value paris in the form of
+    ``key1=value1,key2=value2``. Accepted keys and values are:
+
+        ``status``
+            Status of the alert. ``OK`` will set the background color of the
+            message to green irrespective of the severity of the alert. If not
+            specified, or anything other than ``OK`` was specified, background
+            color is determined by ``nseverity``.
+
+        ``nseverity``
+            Numerical severity of the alert (0 <= n <= 5).  Background color of
+            the message sent to HipChat will be determined according to this
+            value. If not specified, ``High`` is used as a default.
+
+        ``notify``
+            Wether or not to trigger notifications(both in-app notification and
+            offline / idle notifications). To not trigger notifications, value
+            has to be one of ``false``, ``off``, ``no``, ``0`` (case
+            insensitive). Any thing other than these values will trigger the
+            notification.
+
+    Args:
+        string (str): ``metadata string``.
+
+    Returns:
+        A dict containing the following:
+
+        ============= ================================================
+        key           value
+        color (str)   Background color of the message sent to HipChat.
+        notify (bool) Wether or not to trigger notifications.
+        ============= ================================================
+    """
+
     nseverity_color_map = {
         0: 'gray',
         1: 'purple',
@@ -169,6 +285,7 @@ def parse_metadata(string):
         if kv_pair:
             key, value = kv_pair.split('=', 1)
             key = key.strip().lower()
+            value = value.strip()
 
             if key == 'status':
                 status = value
@@ -184,7 +301,7 @@ def parse_metadata(string):
             color = 'green'
         else:
             color = nseverity_color_map[int(nseverity)]
-    except (KeyError, ValueError):
+    except (KeyError, TypeError, ValueError):
         color = 'red'
 
     if str(notify).lower() in ['false', 'off', 'no', '0']:
@@ -198,6 +315,26 @@ def parse_metadata(string):
 
 
 def parse_alert(string):
+    """Format alert message before sending it to HipChat.
+
+    Does 2 thins:
+        * Prefix message with "@all" mention for messages to trigger
+          notifications.
+        * Truncate long messages so that they fits within the 10000 character
+          limit of HipChat.
+
+    Args:
+        string (str): Body of the alert message.
+
+    Returns:
+        A dict containing the following:
+
+        ===== =========================================
+        key   value
+        alert Formatted message.
+        ===== =========================================
+    """
+
     dictionary = {}
 
     alert = str(string)
