@@ -1,0 +1,8 @@
+[report]
+exclude_lines =
+    except ImportError:
+    from urllib.request import HTTPSHandler
+    from urllib.request import build_opener
+    from urllib.request import Request
+    from urllib.error import HTTPError
+    from urllib.error import URLError
