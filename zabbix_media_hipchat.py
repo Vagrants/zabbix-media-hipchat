@@ -9,12 +9,38 @@ __version__ = '0.1.1'
 import optparse
 import sys
 import textwrap
-import urllib2
 
+# pylint: disable=import-error, no-name-in-module
 try:
     import json
 except ImportError:
     import simplejson as json
+
+try:
+    from urllib2 import HTTPSHandler
+except ImportError:
+    from urllib.request import HTTPSHandler
+
+try:
+    from urllib2 import build_opener
+except ImportError:
+    from urllib.request import build_opener
+
+try:
+    from urllib2 import Request
+except ImportError:
+    from urllib.request import Request
+
+try:
+    from urllib2 import HTTPError
+except ImportError:
+    from urllib.error import HTTPError
+
+try:
+    from urllib2 import URLError
+except ImportError:
+    from urllib.error import URLError
+# pylint: enable=import-error, no-name-in-module
 
 
 def main():
@@ -26,29 +52,18 @@ def main():
     and exit with 1.
     """
 
+    opener_director = build_opener(HTTPSHandler())
+
     args = get_arguments()
-
-    json_body_dict = {}
-    json_body_dict['color'] = args['color']
-    json_body_dict['message'] = args['alert']
-    json_body_dict['notify'] = args['notify']
-    json_body_dict['message_format'] = 'text'
-    json_body_str = json.dumps(json_body_dict)
-
-    handler = urllib2.HTTPSHandler()
-    opener_director = urllib2.build_opener(handler)
-    request = urllib2.Request(API_ENDPOINT_ROOM % args['room'])
-    request.add_data(json_body_str)
-    request.add_header('Authorization', 'Bearer %s' % args['auth_token'])
-    request.add_header('Content-Type', 'application/json')
+    request = get_request(args, API_ENDPOINT_ROOM)
 
     try:
         opener_director.open(request)
-    except urllib2.HTTPError, code:
-        sys.stderr.write(str(code) + '\n')
+    except HTTPError:
+        sys.stderr.write(str(sys.exc_info()[1]) + '\n')
         sys.exit(1)
-    except urllib2.URLError, reason:
-        sys.stderr.write(str(reason) + '\n')
+    except URLError:
+        sys.stderr.write(str(sys.exc_info()[1]) + '\n')
         sys.exit(1)
 
 
@@ -346,6 +361,23 @@ def parse_alert(string):
 
     dictionary['alert'] = alert
     return dictionary
+
+
+def get_request(args, endpoint):
+    request = Request(endpoint % args['room'])
+
+    json_body_dict = {}
+    json_body_dict['color'] = args['color']
+    json_body_dict['message'] = args['alert']
+    json_body_dict['notify'] = args['notify']
+    json_body_dict['message_format'] = 'text'
+    json_body_str = json.dumps(json_body_dict)
+    request.add_data(json_body_str)
+
+    request.add_header('Authorization', 'Bearer %s' % args['auth_token'])
+    request.add_header('Content-type', 'application/json')
+
+    return request
 
 
 if __name__ == '__main__':

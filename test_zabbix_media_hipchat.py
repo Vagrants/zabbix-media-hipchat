@@ -1,33 +1,37 @@
 import optparse
 import pytest
 
+try:
+    import json
+except ImportError:
+    import simplejson as json
+
 from zabbix_media_hipchat import PlainTextEpilogFormatter
 from zabbix_media_hipchat import get_arguments
-from zabbix_media_hipchat import main
+from zabbix_media_hipchat import get_request
 from zabbix_media_hipchat import parse_alert
 from zabbix_media_hipchat import parse_destination
 from zabbix_media_hipchat import parse_metadata
 
 
 class TestPlainTextEpilogFormatter(object):
+    @classmethod
+    def setup_class(cls):
+        cls.ptef = PlainTextEpilogFormatter()
+
     def test_epilog_with_blank(self):
         test_input = ''
         test_output = ''
-        ptef = PlainTextEpilogFormatter()
-        assert test_output == ptef.format_epilog(test_input)
+        assert test_output == self.ptef.format_epilog(test_input)
 
     def test_epilog_with_content(self):
         test_input = 'a'
         test_output = '\na\n'
-        ptef = PlainTextEpilogFormatter()
-        assert test_output == ptef.format_epilog(test_input)
+        assert test_output == self.ptef.format_epilog(test_input)
 
 
 class TestGetArguments(object):
     def test_success(self, monkeypatch):
-        input_destination = 'room=123456,auth_token=' + 'a' * 40
-        input_metadata = 'status=PROBLEM,nseverity=5,notify=true'
-        input_alert = 'Test Alert'
         output = {
             'room': '123456',
             'auth_token': 'a' * 40,
@@ -37,19 +41,76 @@ class TestGetArguments(object):
         }
 
         def mock_get_args(self, args):
+            input_destination = 'room=123456,auth_token=' + 'a' * 40
+            input_metadata = 'status=PROBLEM,nseverity=5,notify=true'
+            input_alert = 'Test Alert'
             return [input_destination, input_metadata, input_alert]
+
         monkeypatch.setattr(optparse.OptionParser, '_get_args', mock_get_args)
-        assert output == get_arguments()
+
+        assert get_arguments() == output
 
     def test_failure(self, monkeypatch):
-        input_destination = 'room=123456,auth_token=' + 'a' * 40
-        input_metadata = 'status=PROBLEM,nseverity=5,notify=true'
-
         def mock_get_args(self, args):
+            input_destination = 'room=123456,auth_token=' + 'a' * 40
+            input_metadata = 'status=PROBLEM,nseverity=5,notify=true'
             return [input_destination, input_metadata]
+
         monkeypatch.setattr(optparse.OptionParser, '_get_args', mock_get_args)
+
         with pytest.raises(SystemExit):
             get_arguments()
+
+
+class TestGetRequest(object):
+    @classmethod
+    def setup_class(cls):
+        cls.args = {
+            'room': '123456',
+            'auth_token': 'a' * 40,
+            'color': 'red',
+            'notify': True,
+            'alert': 'Alert!',
+        }
+        cls.endpoint = 'https://api.hipchat.com/v2/room/%s/notification'
+
+    def test_method(self):
+        result = get_request(self.args, self.endpoint)
+        assert result.get_method() == 'POST'
+
+    def test_json_color(self):
+        result = get_request(self.args, self.endpoint)
+        result_data_dict = json.loads(result.get_data())
+        assert result_data_dict['color'] == 'red'
+
+    def test_json_message(self):
+        result = get_request(self.args, self.endpoint)
+        result_data_dict = json.loads(result.get_data())
+        assert result_data_dict['message'] == 'Alert!'
+
+    def test_json_notify(self):
+        result = get_request(self.args, self.endpoint)
+        result_data_dict = json.loads(result.get_data())
+        assert result_data_dict['notify']
+
+    def test_json_message_format(self):
+        result = get_request(self.args, self.endpoint)
+        result_data_dict = json.loads(result.get_data())
+        assert result_data_dict['message_format'] == 'text'
+
+    def test_url(self):
+        result = get_request(self.args, self.endpoint)
+        assert result.get_full_url() == (
+            'https://api.hipchat.com/v2/room/123456/notification'
+        )
+
+    def test_header_authorization(self):
+        result = get_request(self.args, self.endpoint)
+        assert result.get_header('Authorization') == 'Bearer %s' % ('a' * 40)
+
+    def test_header_content_type(self):
+        result = get_request(self.args, self.endpoint)
+        assert result.get_header('Content-type') == 'application/json'
 
 
 class TestParseAlert(object):
