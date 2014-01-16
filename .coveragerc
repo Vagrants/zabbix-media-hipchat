@@ -6,3 +6,5 @@ exclude_lines =
     from urllib.request import Request
     from urllib.error import HTTPError
     from urllib.error import URLError
+    if __name__ == '__main__':
+    main(sys.argv[1:])

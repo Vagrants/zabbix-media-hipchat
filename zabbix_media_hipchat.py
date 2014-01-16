@@ -6,6 +6,7 @@ Send alert to HipChat room mentioning everyone.
 
 __version__ = '0.1.1'
 
+import collections
 import optparse
 import sys
 import textwrap
@@ -43,30 +44,6 @@ except ImportError:
 # pylint: enable=import-error, no-name-in-module
 
 
-def main():
-    """Main function.
-
-    Generates an appropriate JSON and throws them to HipChat API.
-
-    In case something happens(for example wrong token), prints error to stdout
-    and exit with 1.
-    """
-
-    opener_director = build_opener(HTTPSHandler())
-
-    args = get_arguments()
-    request = get_request(args, API_ENDPOINT_ROOM)
-
-    try:
-        opener_director.open(request)
-    except HTTPError:
-        sys.stderr.write(str(sys.exc_info()[1]) + '\n')
-        sys.exit(1)
-    except URLError:
-        sys.stderr.write(str(sys.exc_info()[1]) + '\n')
-        sys.exit(1)
-
-
 API_ENDPOINT_ROOM = 'https://api.hipchat.com/v2/room/%s/notification'
 
 
@@ -88,12 +65,12 @@ class PlainTextEpilogFormatter(optparse.IndentedHelpFormatter):
         """
 
         if epilog:
-            return "\n" + epilog + "\n"
+            return '\n' + epilog + '\n'
         else:
-            return ""
+            return ''
 
 
-def get_arguments():
+def get_arguments(argv):
     """Parse commandline arguments.
 
     Parse commandline arguments and returns a dict containing runtime
@@ -169,19 +146,101 @@ def get_arguments():
         epilog=epilog,
     )
 
-    (_, args) = option_parser.parse_args()
+    (_, args) = option_parser.parse_args(argv)
 
-    dictionary = {}
+    arguments = collections.namedtuple(
+        'arguments', ['alert', 'auth_token', 'color', 'notify', 'room'],
+    )
 
     try:
-        dictionary.update(parse_destination(args[0]))
-        dictionary.update(parse_metadata(args[1]))
-        dictionary.update(parse_alert(args[2]))
-    except (IndexError, KeyError, ValueError):
+        destination = parse_destination(args[0])
+        metadata = parse_metadata(args[1])
+        alert = parse_alert(args[2])
+
+        return arguments(
+            alert=alert.alert,
+            auth_token=destination.auth_token,
+            color=metadata.color,
+            notify=metadata.notify,
+            room=destination.room,
+        )
+    except (AttributeError, IndexError, ValueError):
+        # AttributeError when required key was missing in destination string
+        # IndexError when not enough arguments
+        # ValueError when unacceptable value was assigned to a key
         option_parser.print_help()
         sys.exit(2)
 
-    return dictionary
+
+def get_request(args, endpoint):
+    request = Request(endpoint % args.room)
+
+    json_body_dict = {}
+    json_body_dict['color'] = args.color
+    json_body_dict['message'] = args.alert
+    json_body_dict['message_format'] = 'text'
+    json_body_dict['notify'] = args.notify
+    json_body_str = json.dumps(json_body_dict).encode('utf-8')
+    request.add_data(json_body_str)
+
+    request.add_header('Authorization', 'Bearer %s' % args.auth_token)
+    request.add_header('Content-type', 'application/json')
+
+    return request
+
+
+def main(argv):
+    """Main function.
+
+    Generates an appropriate JSON and throws them to HipChat API.
+
+    In case something happens(for example wrong token), prints error to stdout
+    and exit with 1.
+    """
+
+    opener_director = build_opener(HTTPSHandler())
+
+    args = get_arguments(argv)
+    request = get_request(args, API_ENDPOINT_ROOM)
+
+    try:
+        opener_director.open(request, timeout=30)
+    except (HTTPError, URLError):
+        sys.stderr.write(str(sys.exc_info()[1]) + '\n')
+        sys.exit(1)
+
+
+def parse_alert(string):
+    """Format alert message before sending it to HipChat.
+
+    Does 2 thins:
+        * Prefix message with "@all" mention for messages to trigger
+          notifications.
+        * Truncate long messages so that they fits within the 10000 character
+          limit of HipChat.
+
+    Args:
+        string (str): Body of the alert message.
+
+    Returns:
+        A dict containing the following:
+
+        ===== =========================================
+        key   value
+        alert Formatted message.
+        ===== =========================================
+    """
+
+    alert = collections.namedtuple('alert', ['alert'])
+
+    string = string
+
+    if len(string) > 9993:
+        string = '@all %s ...' % string[0:9990]
+    else:
+        string = '@all %s' % string
+
+    return alert(alert=string)
 
 
 def parse_destination(string):
@@ -210,13 +269,29 @@ def parse_destination(string):
         ================ ====================================================
 
     Raises:
-        * KeyError: Raised when required keys are not proveded.
+        * AttributeError: Raised when required keys are not proveded.
         * ValueError: Raised when values are not acceptable.
     """
 
-    dictionary = {}
-    room = None
-    auth_token = None
+    destination = collections.namedtuple('destination', ['room', 'auth_token'])
+
+    parsed_string = parse_kv_string(string)
+
+    if not 1 <= len(parsed_string.room) <= 100:
+        raise ValueError
+
+    if not 1 <= len(parsed_string.auth_token):
+        raise ValueError
+
+    return destination(
+        room=parsed_string.room,
+        auth_token=parsed_string.auth_token,
+    )
+
+
+def parse_kv_string(string):
+    # pylint: disable=star-args
+    interim_dict = {}
 
     for kv_pair in string.split(','):
         if kv_pair:
@@ -224,25 +299,17 @@ def parse_destination(string):
             key = key.strip().lower()
             value = value.strip()
 
-            if key == 'room':
-                room = value
-            elif key == 'auth_token':
-                auth_token = value
-            else:
-                pass
+            if key:
+                interim_dict[key] = value
 
-    if not room:
-        raise KeyError
+    if interim_dict:
+        key_values = collections.namedtuple(
+            'key_values', sorted(interim_dict.keys())
+        )
 
-    if not len(str(room)) <= 100:
-        raise ValueError
-
-    if not auth_token:
-        raise KeyError
-
-    dictionary['room'] = str(room)
-    dictionary['auth_token'] = str(auth_token)
-    return dictionary
+        return key_values(**interim_dict)
+    else:
+        return None
 
 
 def parse_metadata(string):
@@ -291,94 +358,39 @@ def parse_metadata(string):
         5: 'red',
     }
 
-    dictionary = {}
-    status = None
-    nseverity = None
-    notify = None
+    metadata = collections.namedtuple('metadata', ['color', 'notify'])
 
-    for kv_pair in string.split(','):
-        if kv_pair:
-            key, value = kv_pair.split('=', 1)
-            key = key.strip().lower()
-            value = value.strip()
-
-            if key == 'status':
-                status = value
-            elif key == 'nseverity':
-                nseverity = value
-            elif key == 'notify':
-                notify = value
-            else:
-                pass
+    parsed_string = parse_kv_string(string)
 
     try:
-        if str(status).upper() == 'OK':
-            color = 'green'
+        if parsed_string.status.upper() == 'OK':
+            is_ok = True
         else:
-            color = nseverity_color_map[int(nseverity)]
-    except (KeyError, TypeError, ValueError):
+            is_ok = False
+    except AttributeError:
+        is_ok = False
+
+    try:
+        color = nseverity_color_map[int(parsed_string.nseverity)]
+    except (AttributeError, KeyError, ValueError):
+    # AttributeError when nseverity was not specified
+    # KeyError when not 0 <= nseverity <= 5
+    # ValueError when nseverity was not a number
         color = 'red'
 
-    if str(notify).lower() in ['false', 'off', 'no', '0']:
-        notify = False
-    else:
+    try:
+        if parsed_string.notify.lower() in ['false', 'off', 'no', '0']:
+            notify = False
+        else:
+            notify = True
+    except AttributeError:
         notify = True
 
-    dictionary['color'] = color
-    dictionary['notify'] = notify
-    return dictionary
+    if is_ok:
+        color = 'green'
 
-
-def parse_alert(string):
-    """Format alert message before sending it to HipChat.
-
-    Does 2 thins:
-        * Prefix message with "@all" mention for messages to trigger
-          notifications.
-        * Truncate long messages so that they fits within the 10000 character
-          limit of HipChat.
-
-    Args:
-        string (str): Body of the alert message.
-
-    Returns:
-        A dict containing the following:
-
-        ===== =========================================
-        key   value
-        alert Formatted message.
-        ===== =========================================
-    """
-
-    dictionary = {}
-
-    alert = str(string)
-
-    if len(alert) > 9993:
-        alert = '@all %s ...' % alert[0:9990]
-    else:
-        alert = '@all %s' % alert
-
-    dictionary['alert'] = alert
-    return dictionary
-
-
-def get_request(args, endpoint):
-    request = Request(endpoint % args['room'])
-
-    json_body_dict = {}
-    json_body_dict['color'] = args['color']
-    json_body_dict['message'] = args['alert']
-    json_body_dict['notify'] = args['notify']
-    json_body_dict['message_format'] = 'text'
-    json_body_str = json.dumps(json_body_dict)
-    request.add_data(json_body_str)
-
-    request.add_header('Authorization', 'Bearer %s' % args['auth_token'])
-    request.add_header('Content-type', 'application/json')
-
-    return request
+    return metadata(color=color, notify=notify)
 
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv[1:])
