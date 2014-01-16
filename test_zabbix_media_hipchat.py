@@ -296,6 +296,11 @@ class TestParseKVString(object):
         test_output = self.kv_tuple(['a', 'c'])(a='b', c='d')
         assert test_output == parse_kv_string(test_input)
 
+    def test_multiple_key_occurence(self):
+        test_input = 'a=b,a=c,a=d'
+        test_output = self.kv_tuple(['a'])(a='d')
+        assert test_output == parse_kv_string(test_input)
+
 
 class TestParsemetadata(object):
     @classmethod
