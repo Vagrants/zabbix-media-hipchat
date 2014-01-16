@@ -47,6 +47,10 @@ except ImportError:
 API_ENDPOINT_ROOM = 'https://api.hipchat.com/v2/room/%s/notification'
 
 
+class ParameterError(Exception):
+    pass
+
+
 class PlainTextEpilogFormatter(optparse.IndentedHelpFormatter):
     """Format help.
 
@@ -164,12 +168,11 @@ def get_arguments(argv):
             notify=metadata.notify,
             room=destination.room,
         )
-    except (AttributeError, IndexError, ValueError):
+    except (AttributeError, IndexError, ValueError) as exception:
         # AttributeError when required key was missing in destination string
         # IndexError when not enough arguments
         # ValueError when unacceptable value was assigned to a key
-        option_parser.print_help()
-        sys.exit(2)
+        raise ParameterError(exception)
 
 
 def get_request(args, endpoint):
@@ -189,7 +192,7 @@ def get_request(args, endpoint):
     return request
 
 
-def main(argv):
+def main(argv=None):
     """Main function.
 
     Generates an appropriate JSON and throws them to HipChat API.
@@ -198,16 +201,24 @@ def main(argv):
     and exit with 1.
     """
 
-    opener_director = build_opener(HTTPSHandler())
+    if argv is None:
+        argv = sys.argv
 
-    args = get_arguments(argv)
+    try:
+        args = get_arguments(argv[1:])
+    except (ParameterError) as exception:
+        sys.stderr.write(str(exception) + '\n')
+        return 2
+
+    opener_director = build_opener(HTTPSHandler())
     request = get_request(args, API_ENDPOINT_ROOM)
 
     try:
         opener_director.open(request, timeout=30)
-    except (HTTPError, URLError):
-        sys.stderr.write(str(sys.exc_info()[1]) + '\n')
-        sys.exit(1)
+        return 0
+    except (HTTPError, URLError) as exception:
+        sys.stderr.write(str(exception) + '\n')
+        return 1
 
 
 def parse_alert(string):
@@ -393,4 +404,4 @@ def parse_metadata(string):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    sys.exit(main())

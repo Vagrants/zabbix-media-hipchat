@@ -7,6 +7,7 @@ try:
 except ImportError:
     import simplejson as json
 
+from zabbix_media_hipchat import ParameterError
 from zabbix_media_hipchat import PlainTextEpilogFormatter
 from zabbix_media_hipchat import get_arguments
 from zabbix_media_hipchat import get_request
@@ -61,7 +62,7 @@ class TestGetArguments(object):
         )
 
     def test_2_arguments(self):
-        with pytest.raises(SystemExit):
+        with pytest.raises(ParameterError):
             get_arguments([
                 self.input_destination,
                 self.input_metadata,
@@ -118,10 +119,16 @@ class TestGetRequest(object):
 class TestMain(object):
     @classmethod
     def setup_class(cls):
+        cls.argv0 = 'zabbix_media_hipchat.py'
         cls.input_alert = 'Test Alert'
         cls.input_destination = 'room=123456,auth_token=' + 'a' * 40
         cls.input_metadata = 'status=PROBLEM,nseverity=5,notify=true'
-        cls.args = [cls.input_destination, cls.input_metadata, cls.input_alert]
+        cls.args = [
+            cls.argv0,
+            cls.input_destination,
+            cls.input_metadata,
+            cls.input_alert,
+        ]
 
         cls.request_body = {
             'color': 'red',
@@ -137,7 +144,7 @@ class TestMain(object):
             'https://api.hipchat.com/v2/room/123456/notification',
         )
 
-        main(self.args)
+        assert 0 == main(self.args)
 
         request = httpretty.last_request()
 
@@ -154,8 +161,10 @@ class TestMain(object):
             status=500,
         )
 
-        with pytest.raises(SystemExit):
-            main(self.args)
+        assert 1 == main(self.args)
+
+    def test_main_with_invalid_args(self):
+        assert 2 == main(self.args[:2])
 
 
 class TestParseAlert(object):
