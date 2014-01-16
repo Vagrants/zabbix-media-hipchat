@@ -1,10 +1,11 @@
 [report]
 exclude_lines =
+    argv = sys.argv
     except ImportError:
-    from urllib.request import HTTPSHandler
-    from urllib.request import build_opener
-    from urllib.request import Request
     from urllib.error import HTTPError
     from urllib.error import URLError
+    from urllib.request import HTTPSHandler
+    from urllib.request import Request
+    from urllib.request import build_opener
     if __name__ == '__main__':
-    main(sys.argv[1:])
+    sys.exit(main())
